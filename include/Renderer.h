@@ -1,12 +1,14 @@
 // Isolates display hardware and owns the only full-screen RGB565 buffer.
 #pragma once
 #include <M5Unified.h>
-#include "InputTestView.h"
+#include "Dialogue.h"
+
+enum class ZooScreen : uint8_t { Zoo, Dialogue, Actions };
 
 class Renderer {
 public:
     bool begin();
-    void drawZoo(float fps, const InputTestView& inputTest);
+    void drawZoo(ZooScreen screen, const Dialogue& dialogue, int selectedAction, float fps);
 
 private:
     static constexpr int ScreenWidth = 320;
@@ -17,6 +19,8 @@ private:
     bool usingPsram_ = false;
 
     void drawScene();
-    void drawInputTest(float fps, const InputTestView& inputTest);
+    void drawDodo(int left, int top, int scale);
+    void drawDialogue(const Dialogue& dialogue);
+    void drawActions(int selectedAction);
 };
 
