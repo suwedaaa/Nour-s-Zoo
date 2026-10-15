@@ -81,13 +81,18 @@ void Renderer::drawDodo(int left, int top, int scale) {
 }
 
 // Compose the entire scene, then perform exactly one display push.
-void Renderer::drawZoo(ZooScreen screen, const Dialogue& dialogue, int selectedAction, float fps) {
+void Renderer::drawZoo(ZooScreen screen, const Dialogue& dialogue, int selectedAction, float fps,
+                       const DialogueNode* choiceNode, int selectedChoice,
+                       const StudyTimer& study, int selectedSetting, const char* volume) {
     drawScene();
     frame_.setFont(&fonts::Font0); // Fixed 6x8 bitmap cells, including punctuation.
     frame_.setTextWrap(false, false); // Dialogue supplies its own stable wrapping.
     frame_.setTextColor(TFT_WHITE, TFT_BLACK);
     if (screen == ZooScreen::Dialogue) drawDialogue(dialogue);
     if (screen == ZooScreen::Actions) drawActions(selectedAction);
+    if (screen == ZooScreen::Choices && choiceNode) drawChoices(*choiceNode, selectedChoice);
+    if (screen == ZooScreen::Study) drawStudy(study);
+    if (screen == ZooScreen::SoundSettings) drawSoundSettings(selectedSetting, volume);
     // Keep performance diagnostics available without obscuring normal play.
     constexpr bool ShowDebug = false;
     if (ShowDebug) {
@@ -104,14 +109,17 @@ void Renderer::drawDialogue(const Dialogue& dialogue) {
     frame_.drawRect(2, 136, 316, 102, TFT_WHITE);
     frame_.drawRect(3, 137, 314, 100, TFT_WHITE);
     const bool dodo = dialogue.speaker() == Speaker::Dodo;
+    const bool narration = dialogue.speaker() == Speaker::Narrator;
     if (dodo) drawDodo(10, 157, 3);
-    const int textLeft = dodo ? 106 : 30;
+    const int textLeft = dodo ? 106 : narration ? 18 : 30;
     frame_.setTextSize(1);
-    frame_.setCursor(textLeft - 12, 146);
-    frame_.print(dodo ? "DODO" : "NOUR");
+    frame_.setCursor(narration ? textLeft : textLeft - 12, 146);
+    frame_.print(dodo ? "DODO" : dialogue.speaker() == Speaker::Player ? "NOUR" : "NARRATION");
     frame_.setTextSize(2);
-    frame_.setCursor(textLeft - 12, 166);
-    frame_.print("*");
+    if (!narration) {
+        frame_.setCursor(textLeft - 12, 166);
+        frame_.print("*");
+    }
     for (int row = 0; row < Dialogue::RowsPerPage; ++row) {
         frame_.setCursor(textLeft, 166 + row * 18);
         const char* text = dialogue.row(row);
@@ -135,5 +143,56 @@ void Renderer::drawActions(int selectedAction) {
         }
         frame_.setCursor(left + 14, 187);
         frame_.print(labels[index]);
+    }
+}
+
+// Replies require a choice: no Back item, portrait, asterisk or control hints.
+void Renderer::drawChoices(const DialogueNode& node, int selectedChoice) {
+    frame_.fillRect(2, 136, 316, 102, TFT_BLACK);
+    frame_.drawRect(2, 136, 316, 102, TFT_WHITE);
+    frame_.drawRect(3, 137, 314, 100, TFT_WHITE);
+    frame_.setTextSize(2);
+    for (int index = 0; index < node.choiceCount; ++index) {
+        const int top = 148 + index * 28;
+        if (index == selectedChoice) {
+            frame_.fillTriangle(12, top + 2, 12, top + 14, 20, top + 8, TFT_WHITE);
+        }
+        frame_.setCursor(28, top);
+        frame_.print(node.choices[index].label);
+    }
+}
+
+// Render rounded-up seconds so the session starts at 25:00 and ends at 00:00.
+void Renderer::drawStudy(const StudyTimer& study) {
+    frame_.fillRect(2, 164, 316, 74, TFT_BLACK);
+    frame_.drawRect(2, 164, 316, 74, TFT_WHITE);
+    frame_.drawRect(3, 165, 314, 72, TFT_WHITE);
+    frame_.setTextSize(1);
+    frame_.setCursor(16, 174);
+    frame_.print(study.completed() ? "STUDY COMPLETE" : "STUDY TIME");
+    const uint32_t seconds = study.remainingSeconds();
+    frame_.setTextSize(4);
+    frame_.setCursor(100, 192);
+    frame_.printf("%02lu:%02lu", static_cast<unsigned long>(seconds / 60),
+                  static_cast<unsigned long>(seconds % 60));
+}
+
+// Long-B on the zoo opens these sound settings; volume zero mutes all sounds.
+void Renderer::drawSoundSettings(int selectedSetting, const char* volume) {
+    frame_.fillRect(2, 136, 316, 102, TFT_BLACK);
+    frame_.drawRect(2, 136, 316, 102, TFT_WHITE);
+    frame_.drawRect(3, 137, 314, 100, TFT_WHITE);
+    frame_.setTextSize(1);
+    frame_.setCursor(16, 146);
+    frame_.print("SOUND");
+    frame_.setTextSize(2);
+    for (int index = 0; index < 2; ++index) {
+        const int top = 166 + index * 34;
+        if (index == selectedSetting) {
+            frame_.fillTriangle(12, top + 2, 12, top + 14, 20, top + 8, TFT_WHITE);
+        }
+        frame_.setCursor(28, top);
+        if (index == 0) frame_.printf("Volume: %s", volume);
+        else frame_.print("Back");
     }
 }

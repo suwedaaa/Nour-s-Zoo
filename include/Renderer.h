@@ -2,13 +2,17 @@
 #pragma once
 #include <M5Unified.h>
 #include "Dialogue.h"
+#include "DialogueData.h"
+#include "StudyTimer.h"
 
-enum class ZooScreen : uint8_t { Zoo, Dialogue, Actions };
+enum class ZooScreen : uint8_t { Zoo, Dialogue, Actions, Choices, Study, SoundSettings };
 
 class Renderer {
 public:
     bool begin();
-    void drawZoo(ZooScreen screen, const Dialogue& dialogue, int selectedAction, float fps);
+    void drawZoo(ZooScreen screen, const Dialogue& dialogue, int selectedAction, float fps,
+                 const DialogueNode* choiceNode, int selectedChoice,
+                 const StudyTimer& study, int selectedSetting, const char* volume);
 
 private:
     static constexpr int ScreenWidth = 320;
@@ -22,5 +26,8 @@ private:
     void drawDodo(int left, int top, int scale);
     void drawDialogue(const Dialogue& dialogue);
     void drawActions(int selectedAction);
+    void drawChoices(const DialogueNode& node, int selectedChoice);
+    void drawStudy(const StudyTimer& study);
+    void drawSoundSettings(int selectedSetting, const char* volume);
 };
 

@@ -1,34 +1,38 @@
-// Dialogue content and permanent IDs; no drawing or button handling lives here.
+// Defines data-only conversation graphs, stable IDs, tiers and unlock requirements.
 #pragma once
+#include <stddef.h>
 #include <stdint.h>
+#include "Dialogue.h"
 
 enum class DialogueTier : uint8_t { Normal, Rare, Secret };
+enum class DialogueCategory : uint8_t { Greeting, Talk };
 
-struct DialogueLine {
+struct DialogueChoice {
+    const char* label;
+    int nextNode;
+};
+
+// A line has text and nextNode; a choice node has choices instead.
+// nextNode == -1 finishes the conversation. Node positions are never saved.
+struct DialogueNode {
+    Speaker speaker;
+    const char* text;
+    int nextNode;
+    const DialogueChoice* choices;
+    int choiceCount;
+};
+
+struct DialogueScript {
     const char* id;
+    DialogueCategory category;
     DialogueTier tier;
     uint16_t minimumBond;
-    const char* text;
+    uint32_t minimumTalks;
+    const DialogueNode* nodes;
+    int nodeCount;
 };
 
 namespace DialogueData {
-static const DialogueLine Greetings[] = {
-    {"dodo.greeting.hello.001", DialogueTier::Normal, 0,
-     "NOUR! I have been standing here with incredible purpose."},
-    {"dodo.greeting.bread.001", DialogueTier::Normal, 0,
-     "Do you have bread? No pressure. Only a very specific hope."},
-    {"dodo.greeting.flight.001", DialogueTier::Normal, 0,
-     "I tried flying today. The ground was extremely supportive."},
-    {"dodo.greeting.pond.001", DialogueTier::Normal, 0,
-     "The pond called me round. I have decided it is a compliment."},
-};
-static constexpr int GreetingCount = sizeof(Greetings) / sizeof(Greetings[0]);
-static const DialogueLine Talk = {
-    "dodo.talk.management.001", DialogueTier::Normal, 0,
-    "I have appointed myself head of snacks. My first decision? More snacks!"
-};
-static const DialogueLine StudyPreview = {
-    "player.study.preview.001", DialogueTier::Normal, 0,
-    "A quiet spot to study. The study timer will be added in a later milestone."
-};
+extern const DialogueScript Scripts[];
+extern const size_t ScriptCount;
 }

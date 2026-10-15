@@ -3,7 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-enum class Speaker : uint8_t { Dodo, Player };
+enum class Speaker : uint8_t { Dodo, Player, Narrator };
 
 class Dialogue {
 public:
@@ -14,7 +14,7 @@ public:
     static constexpr int MaxRows = 24;
 
     void begin(Speaker speaker, const char* text, uint32_t now);
-    void update(uint32_t now);
+    size_t update(uint32_t now);
     bool confirm(uint32_t now);
     Speaker speaker() const { return speaker_; }
     const char* row(int index) const;

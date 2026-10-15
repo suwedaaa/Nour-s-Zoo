@@ -56,15 +56,17 @@ bool Dialogue::wrap(const char* text, int columns) {
 }
 
 // The typewriter catches up after slow frames and handles millis rollover.
-void Dialogue::update(uint32_t now) {
-    if (fullyVisible()) return;
+size_t Dialogue::update(uint32_t now) {
+    if (fullyVisible()) return 0;
     const uint32_t steps = (now - lastCharacterMs_) / CharacterMs;
     const size_t remaining = pageLength() - visible_;
-    visible_ += steps < remaining ? steps : remaining;
+    const size_t typed = steps < remaining ? steps : remaining;
+    visible_ += typed;
     lastCharacterMs_ += steps * CharacterMs;
+    return typed;
 }
 
-// Return true only when B confirms an already-complete final page.
+// Return true only when a tap confirms an already-complete final page.
 bool Dialogue::confirm(uint32_t now) {
     if (!fullyVisible()) {
         visible_ = pageLength();

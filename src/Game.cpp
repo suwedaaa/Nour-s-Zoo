@@ -1,88 +1,162 @@
-// Connects input events to dialogue/menu state without putting hardware in dialogue.
+// Connects input to data-driven dialogue, narration, choices and completion history.
 #include <Arduino.h>
 #include <esp_system.h>
 #include "Game.h"
 
-// Initialise display hardware before the input adapter samples buttons.
+// Initialise the display (including early framebuffer allocation) before input.
 void Game::begin() {
     ready_ = renderer_.begin();
     input_.begin();
+    if (ready_) sound_.begin();
+    for (int index = 0; index < Input::ButtonCount; ++index) {
+        buttonWasDown_[index] = input_.isDown(static_cast<ButtonId>(index));
+    }
+    if (DialogueData::ScriptCount > DialogueHistory::Capacity) {
+        Serial.println("Dialogue table exceeds history capacity.");
+        ready_ = false;
+    }
     lastFrameMs_ = sampleStartMs_ = millis();
 }
 
-// Choose among eligible unseen greetings; reset only when the pool is exhausted.
-void Game::openGreeting(uint32_t now) {
-    int eligible[DialogueData::GreetingCount];
-    int count = 0;
-    // Bond progression and persistent history belong to the save milestone.
-    constexpr uint16_t CurrentBond = 0;
-    for (int pass = 0; pass < 2 && count == 0; ++pass) {
-        for (int index = 0; index < DialogueData::GreetingCount; ++index) {
-            const auto& line = DialogueData::Greetings[index];
-            if (line.tier == DialogueTier::Normal && line.minimumBond <= CurrentBond &&
-                !greetingSeen_[index]) {
-                eligible[count++] = index;
-            }
-        }
-        if (count == 0) {
-            for (int index = 0; index < DialogueData::GreetingCount; ++index) greetingSeen_[index] = false;
+// Pick a tier only if unlocked: normal 75%, rare 20%, secret 5% once all unlock.
+void Game::openConversation(DialogueCategory category, uint32_t now) {
+    constexpr uint16_t CurrentBond = 0; // Bond progression comes with the save milestone.
+    DialogueTier tier = DialogueTier::Normal;
+    const uint32_t roll = esp_random() % 100;
+    if (category == DialogueCategory::Talk) {
+        if (roll < 5 && history_.hasEligible(DialogueData::Scripts, DialogueData::ScriptCount,
+                    category, DialogueTier::Secret, CurrentBond, completedTalks_)) {
+            tier = DialogueTier::Secret;
+        } else if (roll < 25 && history_.hasEligible(DialogueData::Scripts, DialogueData::ScriptCount,
+                    category, DialogueTier::Rare, CurrentBond, completedTalks_)) {
+            tier = DialogueTier::Rare;
         }
     }
-    if (count == 0) return;
-    const int chosen = eligible[esp_random() % count];
-    greetingSeen_[chosen] = true;
-    selectedAction_ = 0;
-    dialogue_.begin(Speaker::Dodo, DialogueData::Greetings[chosen].text, now);
-    screen_ = ZooScreen::Dialogue;
+    const auto* script = history_.pick(DialogueData::Scripts, DialogueData::ScriptCount,
+                                     category, tier, CurrentBond, completedTalks_, esp_random());
+    if (!conversation_.begin(script)) return;
+    Serial.printf("Conversation: %s (completed talks: %lu)\n",
+                  script->id, static_cast<unsigned long>(completedTalks_));
+    presentNode(now);
 }
 
-// One input update operates on one screen, preventing B from also confirming a menu.
+// Present the next line or choice, or record the finished conversation exactly once.
+void Game::presentNode(uint32_t now) {
+    if (conversation_.finished()) {
+        const auto* script = conversation_.script();
+        if (script) {
+            if (!history_.markCompleted(script->id)) {
+                Serial.println("Dialogue history is full.");
+            }
+            if (script->category == DialogueCategory::Talk) ++completedTalks_;
+            Serial.printf("Completed: %s\n", script->id);
+        }
+        conversation_.cancel();
+        screen_ = ZooScreen::Actions;
+        return;
+    }
+    const auto* node = conversation_.node();
+    if (!node) return;
+    if (node->choiceCount) {
+        selectedChoice_ = 0;
+        screen_ = ZooScreen::Choices;
+    } else {
+        dialogue_.begin(node->speaker, node->text, now);
+        sound_.newSpeech();
+        screen_ = ZooScreen::Dialogue;
+    }
+}
+
+// Each input update acts on one screen, so a reveal cannot also select a reply.
 void Game::handleInput(uint32_t now) {
     const bool confirm = input_.event(ButtonId::B) == PressEvent::Short;
+    const bool previous = input_.event(ButtonId::A) == PressEvent::Short;
+    const bool next = input_.event(ButtonId::C) == PressEvent::Short;
     switch (screen_) {
     case ZooScreen::Zoo:
-        if (confirm) openGreeting(now);
-        break;
-    case ZooScreen::Dialogue:
-        // Treat simultaneous taps as one advance, never one advance per button.
-        if ((confirm || input_.event(ButtonId::A) == PressEvent::Short ||
-             input_.event(ButtonId::C) == PressEvent::Short) && dialogue_.confirm(now)) {
-            screen_ = ZooScreen::Actions;
+        if (input_.event(ButtonId::B) == PressEvent::Long) {
+            selectedSetting_ = 0;
+            screen_ = ZooScreen::SoundSettings;
+        } else if (confirm) {
+            selectedAction_ = 0;
+            openConversation(DialogueCategory::Greeting, now);
         }
         break;
-    case ZooScreen::Actions: {
-        const bool previous = input_.event(ButtonId::A) == PressEvent::Short;
-        const bool next = input_.event(ButtonId::C) == PressEvent::Short;
-        // Simultaneous opposite directions cancel. Navigation takes priority
-        // over confirmation so a combined press cannot choose an unseen item.
+    case ZooScreen::Dialogue:
+        if ((confirm || previous || next) && dialogue_.confirm(now)) {
+            if (conversation_.script()) {
+                if (conversation_.advance()) presentNode(now);
+            } else {
+                screen_ = ZooScreen::Actions;
+            }
+        }
+        break;
+    case ZooScreen::Actions:
         if (previous || next) {
             selectedAction_ = (selectedAction_ + (next ? 1 : 0) - (previous ? 1 : 0) + 3) % 3;
         } else if (confirm) {
             if (selectedAction_ == 2) {
                 screen_ = ZooScreen::Zoo;
+            } else if (selectedAction_ == 0) {
+                openConversation(DialogueCategory::Talk, now);
             } else {
-                const bool talk = selectedAction_ == 0;
-                dialogue_.begin(talk ? Speaker::Dodo : Speaker::Player,
-                                talk ? DialogueData::Talk.text : DialogueData::StudyPreview.text, now);
-                screen_ = ZooScreen::Dialogue;
+                conversation_.cancel();
+                sound_.newSpeech();
+                study_.start(now);
+                screen_ = ZooScreen::Study;
+            }
+        }
+        break;
+    case ZooScreen::Choices: {
+        const auto* node = conversation_.node();
+        if (!node) break;
+        const int itemCount = node->choiceCount;
+        if (previous || next) {
+            selectedChoice_ = (selectedChoice_ + (next ? 1 : 0) - (previous ? 1 : 0) + itemCount) % itemCount;
+        } else if (confirm) {
+            if (conversation_.choose(selectedChoice_)) {
+                presentNode(now);
             }
         }
         break;
     }
+    case ZooScreen::Study:
+        if (confirm) {
+            study_.stop();
+            screen_ = ZooScreen::Actions;
+        }
+        break;
+    case ZooScreen::SoundSettings:
+        if (previous || next) {
+            selectedSetting_ = (selectedSetting_ + (next ? 1 : 0) - (previous ? 1 : 0) + 2) % 2;
+        } else if (confirm) {
+            if (selectedSetting_ == 0) sound_.cycleVolume();
+            else screen_ = ZooScreen::Zoo;
+        }
+        break;
     }
 }
 
-// Poll input continuously; compose/push complete frames at approximately 30 FPS.
+// Poll continuously and render complete frames at approximately 30 FPS.
 void Game::update(uint32_t now) {
     input_.update();
     if (!ready_) return;
-    // Handle input before ticking text: a tap on an incomplete page reveals it,
-    // even if this update's elapsed time would otherwise finish typing.
+    for (int index = 0; index < Input::ButtonCount; ++index) {
+        const bool down = input_.isDown(static_cast<ButtonId>(index));
+        if (down && !buttonWasDown_[index]) sound_.click();
+        buttonWasDown_[index] = down;
+    }
     handleInput(now);
-    if (screen_ == ZooScreen::Dialogue) dialogue_.update(now);
+    if (screen_ == ZooScreen::Dialogue) {
+        const size_t typed = dialogue_.update(now);
+        if (dialogue_.speaker() == Speaker::Dodo) sound_.typedCharacters(typed);
+    }
+    // Timer updates independently of drawing, ready for later screen dimming.
+    if (study_.update(now)) sound_.studyComplete();
     if (now - lastFrameMs_ < FrameIntervalMs) return;
     lastFrameMs_ = now;
-    renderer_.drawZoo(screen_, dialogue_, selectedAction_, fps_);
+    renderer_.drawZoo(screen_, dialogue_, selectedAction_, fps_,
+                      conversation_.node(), selectedChoice_, study_, selectedSetting_, sound_.volumeLabel());
     ++frameCount_;
     const uint32_t completedMs = millis();
     const uint32_t elapsedMs = completedMs - sampleStartMs_;
