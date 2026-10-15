@@ -2,6 +2,7 @@
 #pragma once
 #include <stdint.h>
 #include "Renderer.h"
+#include "Input.h"
 
 class Game {
 public:
@@ -11,6 +12,8 @@ public:
 private:
     static constexpr uint32_t FrameIntervalMs = 33;
     Renderer renderer_;
+    Input input_;
+    InputTestView inputTest_;
     uint32_t lastFrameMs_ = 0;
     uint32_t sampleStartMs_ = 0;
     uint32_t frameCount_ = 0;

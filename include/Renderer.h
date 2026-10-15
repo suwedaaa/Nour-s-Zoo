@@ -1,11 +1,12 @@
 // Isolates display hardware and owns the only full-screen RGB565 buffer.
 #pragma once
 #include <M5Unified.h>
+#include "InputTestView.h"
 
 class Renderer {
 public:
     bool begin();
-    void drawZoo(float fps);
+    void drawZoo(float fps, const InputTestView& inputTest);
 
 private:
     static constexpr int ScreenWidth = 320;
@@ -16,5 +17,6 @@ private:
     bool usingPsram_ = false;
 
     void drawScene();
+    void drawInputTest(float fps, const InputTestView& inputTest);
 };
 

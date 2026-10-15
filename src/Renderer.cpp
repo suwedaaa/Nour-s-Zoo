@@ -5,11 +5,6 @@
 #include "backgrounds/background1.h"
 #include "animals/dodo/dodo1.h"
 
-namespace {
-// Enable at build time when measuring performance; keep the artwork unobscured.
-constexpr bool ShowDebug = false;
-}
-
 // Prefer PSRAM; retry in internal RAM only if the first allocation fails.
 bool Renderer::begin() {
     M5.begin();
@@ -67,15 +62,27 @@ void Renderer::drawScene() {
 }
 
 // Compose the entire scene, then perform exactly one display push.
-void Renderer::drawZoo(float fps) {
+void Renderer::drawZoo(float fps, const InputTestView& inputTest) {
     drawScene();
-    if (ShowDebug) {
-        frame_.fillRect(0, 0, ScreenWidth, 18, TFT_BLACK);
-        frame_.setTextSize(1);
-        frame_.setTextColor(TFT_WHITE, TFT_BLACK);
-        frame_.setCursor(4, 5);
-        frame_.printf("Zoo | FPS %.1f | %s", fps,
-                      usingPsram_ ? "PSRAM" : "RAM fallback");
-    }
+    drawInputTest(fps, inputTest);
     frame_.pushSprite(0, 0);
+}
+
+// Persistent counters expose duplicate events, including a short after a long.
+void Renderer::drawInputTest(float fps, const InputTestView& inputTest) {
+    frame_.fillRect(0, 158, ScreenWidth, 82, TFT_BLACK);
+    frame_.drawRect(0, 158, ScreenWidth, 82, TFT_WHITE);
+    frame_.setTextSize(1);
+    frame_.setTextColor(TFT_WHITE, TFT_BLACK);
+    frame_.setCursor(6, 164);
+    frame_.printf("INPUT TEST | 700ms hold | %.1f FPS", fps);
+    for (int index = 0; index < 3; ++index) {
+        frame_.setCursor(6, 178 + index * 12);
+        frame_.printf("%c %-4s  SHORT:%lu  LONG:%lu", 'A' + index,
+                      inputTest.down[index] ? "DOWN" : "UP",
+                      static_cast<unsigned long>(inputTest.shortCount[index]),
+                      static_cast<unsigned long>(inputTest.longCount[index]));
+    }
+    frame_.setCursor(6, 223);
+    frame_.print(inputTest.lastEvent);
 }
