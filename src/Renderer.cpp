@@ -1,6 +1,8 @@
 // Renders PNG-derived RGB565 assets into one checked full-screen framebuffer.
 #include <Arduino.h>
+#ifndef NOURS_DESKTOP
 #include <esp_heap_caps.h>
+#endif
 #include "Renderer.h"
 #include "backgrounds/background1.h"
 #include "animals/dodo/dodo1.h"
@@ -8,6 +10,13 @@
 // Reserve the large buffer before peripherals can fragment the fallback heap.
 bool Renderer::begin() {
     Serial.begin(115200);
+#ifdef NOURS_DESKTOP
+    frame_.setColorDepth(16);
+    if (!frame_.createSprite(ScreenWidth, ScreenHeight)) return false;
+    M5.begin();
+    Serial.println("Desktop framebuffer: 320x240 RGB565");
+    return true;
+#else
     // Arduino initialises PSRAM before setup(). Sprite allocation does not
     // require the physical display to be initialised.
     const bool psramReady = psramFound();
@@ -47,6 +56,7 @@ bool Renderer::begin() {
     Serial.printf("Nour's Zoo: 320x240 RGB565, 153600 bytes, %s\n",
                   usingPsram_ ? "PSRAM" : "internal RAM");
     return true;
+#endif
 }
 
 // Draw an opaque background, then the keyed sprite at its feet anchor.
