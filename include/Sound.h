@@ -12,6 +12,9 @@ public:
     void studyComplete();
     void cycleVolume();
     const char* volumeLabel() const;
+    uint8_t volumeIndex() const { return volumeIndex_; }
+    void setVolumeIndex(uint8_t value);
+    void silence();
 
 private:
     bool ready_ = false;

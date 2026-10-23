@@ -8,6 +8,8 @@
 #include "DialogueHistory.h"
 #include "Sound.h"
 #include "StudyTimer.h"
+#include "Save.h"
+#include "Power.h"
 
 class Game {
 public:
@@ -25,6 +27,14 @@ private:
     DialogueHistory history_;
     Sound sound_;
     StudyTimer study_;
+    Save save_;
+    Power power_;
+    PowerPolicy idle_;
+    SystemView system_;
+    uint32_t bootHoldAt_ = 0;
+    bool bootWipe_ = false;
+    bool offPending_ = false;
+    uint32_t offReleasedAt_ = 0;
     bool buttonWasDown_[Input::ButtonCount] = {};
     int selectedSetting_ = 0;
     int selectedChoice_ = 0;
@@ -38,4 +48,7 @@ private:
     void openConversation(DialogueCategory category, uint32_t now);
     void presentNode(uint32_t now);
     void handleInput(uint32_t now);
+    void restoreSave(uint32_t now);
+    bool checkpoint();
+    void resetSave(uint32_t now);
 };

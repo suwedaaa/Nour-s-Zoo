@@ -53,7 +53,7 @@ void Sound::studyComplete() {
     tone(1046, 180, 0);
 }
 
-// Settings are in-memory until the save milestone.
+// Preview the new setting; Game persists it after this call.
 void Sound::cycleVolume() {
     volumeIndex_ = (volumeIndex_ + 1) % 4;
     applyVolume();
@@ -63,4 +63,15 @@ void Sound::cycleVolume() {
 // Expose a UI label without exposing the hardware speaker API.
 const char* Sound::volumeLabel() const {
     return Labels[volumeIndex_];
+}
+
+// Restore a validated persisted setting without emitting a preview tone.
+void Sound::setVolumeIndex(uint8_t value) {
+    volumeIndex_ = value < 4 ? value : 1;
+    applyVolume();
+}
+
+// Silence all channels before sleep while retaining the user's volume setting.
+void Sound::silence() {
+    if (ready_) M5.Speaker.stop();
 }

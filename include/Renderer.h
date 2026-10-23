@@ -4,15 +4,19 @@
 #include "Dialogue.h"
 #include "DialogueData.h"
 #include "StudyTimer.h"
+#include "SystemView.h"
 
-enum class ZooScreen : uint8_t { Zoo, Dialogue, Actions, Choices, Study, SoundSettings };
+enum class ZooScreen : uint8_t { Zoo, Dialogue, Actions, Choices, Study, SoundSettings,
+                                 ConfirmReset, ConfirmOff, BootWipe, PoweredOff };
 
 class Renderer {
 public:
     bool begin();
+    void blank();
     void drawZoo(ZooScreen screen, const Dialogue& dialogue, int selectedAction, float fps,
                  const DialogueNode* choiceNode, int selectedChoice,
-                 const StudyTimer& study, int selectedSetting, const char* volume);
+                 const StudyTimer& study, int selectedSetting, const char* volume,
+                 const SystemView& system);
 
 private:
     static constexpr int ScreenWidth = 320;
@@ -28,6 +32,7 @@ private:
     void drawActions(int selectedAction);
     void drawChoices(const DialogueNode& node, int selectedChoice);
     void drawStudy(const StudyTimer& study);
-    void drawSoundSettings(int selectedSetting, const char* volume);
+    void drawSoundSettings(int selectedSetting, const char* volume, const SystemView& system);
+    void drawConfirmation(bool reset, int selection);
 };
 

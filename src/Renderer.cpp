@@ -1,9 +1,11 @@
 // Renders PNG-derived RGB565 assets into one checked full-screen framebuffer.
 #include <Arduino.h>
+#include <string.h>
 #ifndef NOURS_DESKTOP
 #include <esp_heap_caps.h>
 #endif
 #include "Renderer.h"
+#include "SaveData.h"
 #include "backgrounds/background1.h"
 #include "animals/dodo/dodo1.h"
 
@@ -93,7 +95,8 @@ void Renderer::drawDodo(int left, int top, int scale) {
 // Compose the entire scene, then perform exactly one display push.
 void Renderer::drawZoo(ZooScreen screen, const Dialogue& dialogue, int selectedAction, float fps,
                        const DialogueNode* choiceNode, int selectedChoice,
-                       const StudyTimer& study, int selectedSetting, const char* volume) {
+                       const StudyTimer& study, int selectedSetting, const char* volume,
+                       const SystemView& system) {
     drawScene();
     frame_.setFont(&fonts::Font0); // Fixed 6x8 bitmap cells, including punctuation.
     frame_.setTextWrap(false, false); // Dialogue supplies its own stable wrapping.
@@ -102,13 +105,33 @@ void Renderer::drawZoo(ZooScreen screen, const Dialogue& dialogue, int selectedA
     if (screen == ZooScreen::Actions) drawActions(selectedAction);
     if (screen == ZooScreen::Choices && choiceNode) drawChoices(*choiceNode, selectedChoice);
     if (screen == ZooScreen::Study) drawStudy(study);
-    if (screen == ZooScreen::SoundSettings) drawSoundSettings(selectedSetting, volume);
+    if (screen == ZooScreen::SoundSettings) drawSoundSettings(selectedSetting, volume, system);
+    if (screen == ZooScreen::ConfirmReset || screen == ZooScreen::ConfirmOff)
+        drawConfirmation(screen == ZooScreen::ConfirmReset, system.confirmation);
+    if (screen == ZooScreen::BootWipe) {
+        frame_.fillRect(2, 136, 316, 102, TFT_BLACK);
+        frame_.drawRect(2, 136, 316, 102, TFT_WHITE);
+        frame_.setTextSize(2);
+        frame_.setCursor(16, 150);
+        frame_.print("Hold A+C to wipe");
+        frame_.setCursor(16, 178);
+        frame_.print("Release to cancel");
+    }
     // Keep performance diagnostics available without obscuring normal play.
-    constexpr bool ShowDebug = false;
-    if (ShowDebug) {
+    if (system.debug) {
+        frame_.fillRect(0, 0, ScreenWidth, 27, TFT_BLACK);
         frame_.setTextSize(1);
         frame_.setCursor(2, 2);
-        frame_.printf("FPS %.1f | state %d", fps, static_cast<int>(screen));
+        frame_.printf("%.1f FPS S%d %s %s", fps, static_cast<int>(screen),
+                      usingPsram_ ? "PSRAM" : "RAM", system.source);
+        frame_.setCursor(2, 14);
+        frame_.printf("XP %lu Talks %lu %s", static_cast<unsigned long>(system.bondXp),
+                      static_cast<unsigned long>(system.talks), system.saveStatus);
+    } else if (strcmp(system.saveStatus, "Saved") && strcmp(system.saveStatus, "New save")) {
+        frame_.fillRect(0, 0, ScreenWidth, 14, TFT_BLACK);
+        frame_.setTextSize(1);
+        frame_.setCursor(2, 2);
+        frame_.printf("%s - see System menu", system.saveStatus);
     }
     frame_.pushSprite(0, 0);
 }
@@ -187,22 +210,48 @@ void Renderer::drawStudy(const StudyTimer& study) {
                   static_cast<unsigned long>(seconds % 60));
 }
 
-// Long-B on the zoo opens these sound settings; volume zero mutes all sounds.
-void Renderer::drawSoundSettings(int selectedSetting, const char* volume) {
-    frame_.fillRect(2, 136, 316, 102, TFT_BLACK);
-    frame_.drawRect(2, 136, 316, 102, TFT_WHITE);
-    frame_.drawRect(3, 137, 314, 100, TFT_WHITE);
+// Long-B opens the system menu; its header shows the actual save schema version.
+void Renderer::drawSoundSettings(int selectedSetting, const char* volume, const SystemView& system) {
+    frame_.fillRect(2, 48, 316, 190, TFT_BLACK);
+    frame_.drawRect(2, 48, 316, 190, TFT_WHITE);
+    frame_.drawRect(3, 49, 314, 188, TFT_WHITE);
     frame_.setTextSize(1);
-    frame_.setCursor(16, 146);
-    frame_.print("SOUND");
+    frame_.setCursor(16, 57);
+    frame_.printf("SYSTEM save v%lu | %s", static_cast<unsigned long>(SaveData::Version), system.source);
     frame_.setTextSize(2);
-    for (int index = 0; index < 2; ++index) {
-        const int top = 166 + index * 34;
+    const char* labels[] = {"", "", "Sleep", "Power off", "Reset save", "Back"};
+    for (int index = 0; index < 6; ++index) {
+        const int top = 74 + index * 23;
         if (index == selectedSetting) {
             frame_.fillTriangle(12, top + 2, 12, top + 14, 20, top + 8, TFT_WHITE);
         }
         frame_.setCursor(28, top);
         if (index == 0) frame_.printf("Volume: %s", volume);
-        else frame_.print("Back");
+        else if (index == 1) frame_.printf("Debug: %s", system.debug ? "On" : "Off");
+        else frame_.print(labels[index]);
     }
+    frame_.setTextSize(1);
+    frame_.setCursor(16, 222);
+    frame_.print(system.saveStatus);
+}
+
+// Destructive operations use a second-level confirmation defaulting to Back.
+void Renderer::drawConfirmation(bool reset, int selection) {
+    frame_.fillRect(2, 114, 316, 124, TFT_BLACK);
+    frame_.drawRect(2, 114, 316, 124, TFT_WHITE);
+    frame_.setTextSize(2);
+    frame_.setCursor(16, 126);
+    frame_.print(reset ? "Wipe all progress?" : "Save and power off?");
+    for (int i = 0; i < 2; ++i) {
+        const int top = 164 + i * 30;
+        if (selection == i) frame_.fillTriangle(12, top + 2, 12, top + 14, 20, top + 8, TFT_WHITE);
+        frame_.setCursor(28, top);
+        frame_.print(i == 1 ? "Back" : reset ? "Reset" : "Power off");
+    }
+}
+
+// Used by sleep/off on both desktop and hardware without another framebuffer.
+void Renderer::blank() {
+    frame_.fillScreen(TFT_BLACK);
+    frame_.pushSprite(0, 0);
 }

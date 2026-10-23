@@ -1,3 +1,4 @@
+// Windows display/input/sound adapter and headless end-to-end gameplay checks.
 #include <windows.h>
 #include <mmsystem.h>
 #include <chrono>
@@ -7,6 +8,7 @@
 #include <fstream>
 #include "M5Unified.h"
 #include "Signals.h"
+#include "Save.h"
 #define PROGMEM
 #include "font5x7.h"
 
@@ -194,6 +196,59 @@ void M5Canvas::fillTriangle(int ax,int ay,int bx,int by,int cx,int cy,uint16_t c
         }
 }
 int main(int argc,char** argv) {
+    const bool systemTest = argc > 1 && std::string(argv[1]) == "--system-test";
+    const bool bootTest = argc > 1 && std::string(argv[1]) == "--boot-wipe-test";
+    if (systemTest || bootTest) {
+        headless = true;
+        // CTest supplies a disposable file, never the player's normal save.
+        if (!getenv("NOURS_SAVE_PATH")) return 20;
+        Save fixture;
+        if (!fixture.wipe()) return 21;
+        fixture.data.talks = 17;
+        fixture.data.bondXp = 23;
+        if (!fixture.write()) return 22;
+        if (bootTest) { keyboard[0] = keyboard[2] = true; syncButtons(); }
+        setup();
+        auto advance = [](int ms) {
+            auto end = millis() + ms;
+            while (millis() < end) { loop(); Sleep(1); }
+        };
+        auto press = [&](int button, int duration = 70) {
+            keyboard[button] = true; syncButtons(); advance(duration);
+            keyboard[button] = false; syncButtons(); advance(100);
+        };
+        auto black = [] { return std::all_of(screen.begin(), screen.end(), [](uint32_t c) { return c == 0; }); };
+        if (bootTest) {
+            advance(2200);
+            releaseAll(); advance(150);
+            if (fixture.load() != SaveStatus::Ready || fixture.data.talks || fixture.data.bondXp) return 23;
+            if (black()) return 24;
+            std::puts("Boot wipe passed: held A+C resets progress and returns to zoo.");
+            return 0;
+        }
+        advance(70);
+        press(1, 800); // Long B opens System without triggering a greeting.
+        press(2); press(1); // Debug on, saved immediately.
+        if (fixture.load() != SaveStatus::Ready || !fixture.data.debug || fixture.data.talks != 17) return 25;
+        press(2); press(1); // Explicit Sleep, even on simulated external power.
+        if (!black()) return 26;
+        press(1); // Wake only: must not open a greeting.
+        if (black()) return 27;
+        press(1, 800); // Only zoo can open System here; a stray greeting would fail below.
+        press(1); // Cycle volume to index 2.
+        if (fixture.load() != SaveStatus::Ready || fixture.data.volume != 2) return 28;
+        press(2); press(2); press(2); press(2); // Reset save confirmation.
+        press(1); press(0); press(1);
+        if (fixture.load() != SaveStatus::Ready || fixture.data.talks || fixture.data.debug) return 29;
+        press(1, 800);
+        press(2); press(2); press(2); press(1); // Power off confirmation.
+        press(0); press(1); advance(200);
+        if (!black()) return 30;
+        press(1, 800); press(0); press(2); advance(200);
+        if (!black()) return 31;
+        std::puts("System flow passed: settings persisted, sleep/wake consumed, reset confirmed, off stays black.");
+        return 0;
+    }
     headless=argc>1 && std::string(argv[1])=="--self-test";
     if(headless) {
         setup();
